@@ -1,0 +1,134 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'Amazon Fraud Detector template'
+Resources:
+  TrainingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  BasicNotebookInstance:
+    Type: AWS::SageMaker::NotebookInstance
+    Properties:
+      InstanceType: ml.m5.12xlarge
+      NotebookInstanceName: FraudDetectorNotebook
+      RoleArn:
+        Fn::GetAtt:
+        - NotebookInstanceExecutionRole
+        - Arn
+      LifecycleConfigName:
+        Fn::GetAtt:
+        - BasicNotebookInstanceLifecycleConfig
+        - NotebookInstanceLifecycleConfigName
+    DependsOn:
+    - NotebookInstanceExecutionRole
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+        - id: W1201
+          reason: Solution does not have KMS encryption enabled by default
+  BasicNotebookInstanceLifecycleConfig:
+    Type: AWS::SageMaker::NotebookInstanceLifecycleConfig
+    Properties:
+      OnCreate:
+      - Content:
+          Fn::Base64:
+            Fn::Sub: 'set -e
+
+              # perform following actions as ec2-user
+
+              sudo -u ec2-user -i <<EOF
+
+              cd /home/ec2-user/SageMaker
+
+              # copy source files
+
+              git clone https://github.com/renbrave/fraud-detection-aws.git
+
+              # set environment variables via .env file
+
+              touch .env
+
+              echo "FRAUD_STACK_NAME=${AWS::StackName}" >> .env
+
+              echo "AWS_ACCOUNT_ID=${AWS::AccountId}" >> .env
+
+              echo "AWS_REGION=${AWS::Region}" >> .env
+
+              echo "SAGEMAKER_IAM_ROLE=${NotebookInstanceExecutionRole.Arn}" >> .env
+
+              EOF
+
+              '
+      OnStart:
+      - Content:
+          Fn::Base64:
+            Fn::Sub: 'set -e
+
+              # perform following actions as ec2-user
+
+              sudo -u ec2-user -i <<EOF
+
+              cd /home/ec2-user/SageMaker
+
+              # install Python dependencies in the python3 conda environment
+
+              source /home/ec2-user/anaconda3/bin/activate python3
+
+              pip install --upgrade pip==20.1.1
+
+              # Requirements to run the notebook and local installation of the solution''s code
+
+              pip install -r ./source/notebooks/requirements.txt
+
+              pip install -e ./source/notebooks/
+              
+              pip install --upgrade imbalanced-learn
+
+              # Necessary to avoid issues with containers using this as entry point
+
+              rm -rf ./source/notebooks/src/package.egg-info
+
+              EOF
+
+              '
+  NotebookInstanceExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - sagemaker.amazonaws.com
+            - frauddetector.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      - arn:aws:iam::aws:policy/AmazonFraudDetectorFullAccessPolicy
+      - arn:aws:iam::aws:policy/AmazonS3FullAccess
+Outputs:
+  SageMakerNotebook:
+    Description: Opens the Jupyter notebook to get started with model training
+    Value:
+      Fn::Sub: https://frauddetectionnotebookinstance.notebook.${AWS::Region}.sagemaker.aws/notebooks/fraud-detection-aws/notebooks/model_combination.ipynb
