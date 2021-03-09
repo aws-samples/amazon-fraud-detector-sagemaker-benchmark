@@ -61,7 +61,7 @@ Resources:
 
               # copy source files
 
-              git clone https://github.com/renbrave/fraud-detection-aws.git
+              git clone https://github.com/aws-samples/amazon-fraud-detector-sagemaker-benchmark
 
               # set environment variables via .env file
 
